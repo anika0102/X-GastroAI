@@ -5,3 +5,7 @@ __pycache__/
 *.pyc
 .DS_Store
 best_resnet50_gastric_finetuned.pt
+*.pt
+*.pth
+*.h5
+*.ckpt
