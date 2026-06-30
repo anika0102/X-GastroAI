@@ -11,7 +11,6 @@ from pytorch_grad_cam.utils.image import show_cam_on_image
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
 
 MODEL_PATH = "best_resnet50_gastric_finetuned.pt"
-MODEL_URL = None 
 
 @st.cache_resource
 def load_model(path=MODEL_PATH):
@@ -24,13 +23,17 @@ def load_model(path=MODEL_PATH):
     if not os.path.exists(path):
         raise FileNotFoundError(f"Model file not found at: {path}")
 
-    state_dict = torch.load(path, map_location=device)
+    state_dict = torch.load(
+    path,
+    map_location=device,
+    weights_only=True
+)
     model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
     return model, device
 
-def download_model(url, path):
+# def download_model(url, path):
     import requests
     with st.spinner("Downloading model (this may take a while)..."):
         r = requests.get(url, stream=True)
@@ -90,28 +93,133 @@ if os.path.exists(MODEL_PATH):
         except Exception as e:
             st.error(f"Failed to load model: {e}")
             model = None
+st.markdown("## Choose an Image")
 
-uploaded_file = st.file_uploader("Upload Image", type=["jpg","jpeg","png"])
 
-if uploaded_file is not None:
-    try:
-        image = Image.open(uploaded_file)
-    except Exception as e:
-        st.error("Cannot open image. Try a different file.")
-        raise e
+if "image" not in st.session_state:
+    st.session_state.image = None
 
-    st.image(image, caption="Uploaded Image", width=300)
+option = st.radio(
+    "Image Source",
+    ["Upload your own image", "Use a sample image"],
+    horizontal=True
+)
+
+if option == "Upload your own image":
+
+    uploaded_file = st.file_uploader(
+        "Upload Histopathology Image",
+        type=["jpg", "jpeg", "png"]
+    )
+
+    if uploaded_file is not None:
+        try:
+            st.session_state.image = Image.open(uploaded_file).convert("RGB")
+        except Exception:
+            st.error("Unable to open the uploaded image.")
+
+else:
+
+    sample = st.radio(
+        "Choose a sample image",
+        [
+            "Normal Tissue",
+            "Cancer Tissue"
+        ],
+        horizontal=True
+    )
+
+    if sample == "Normal Tissue":
+        st.session_state.image = Image.open(
+            "sample_images/normal.png"
+        ).convert("RGB")
+
+    else:
+        st.session_state.image = Image.open(
+            "sample_images/cancer.png"
+        ).convert("RGB")
+
+image = st.session_state.image
+
+if image is not None:
+
+    st.image(
+        image,
+        caption="Selected Image",
+        width=300
+    )
 
     if st.button("Run Prediction"):
+
         if model is None:
-            st.error("Model is not loaded. Make sure the model file is at: " + MODEL_PATH)
+            st.error("Model could not be loaded.")
+
         else:
+
             with st.spinner("Running inference..."):
+
                 try:
-                    pred_class, orig, cam_img = generate_gradcam(image, model, device)
-                    label = "Abnormal (Cancer)" if pred_class == 1 else "Normal"
-                    st.subheader(f"Model predicts: **{label}**")
-                    st.write("### Grad-CAM Visualization")
-                    st.image(cam_img, caption="GradCAM Heatmap", width=350)
+
+                    input_tensor = transform(image).unsqueeze(0).to(device)
+
+                    outputs = model(input_tensor)
+
+                    probabilities = torch.softmax(outputs, dim=1)
+
+                    confidence = probabilities.max().item() * 100
+
+                    pred_class, _, cam_img = generate_gradcam(
+                        image,
+                        model,
+                        device
+                    )
+
+                    if pred_class == 1:
+                        prediction = "Cancerous Tissue Detected"
+                    else:
+                        prediction = "Normal Tissue"
+
+                    st.subheader("Prediction")
+
+                    st.success(prediction)
+
+                    st.metric(
+                        "Confidence",
+                        f"{confidence:.2f}%"
+                    )
+
+                    st.write("Class Probabilities")
+
+                    st.write(f"Normal Tissue: {probabilities[0][0] * 100:.2f}%")
+
+                    st.write(f"Cancer Tissue: {probabilities[0][1] * 100:.2f}%")
+
+                    st.subheader("Grad-CAM Visualization")
+
+                    st.image(
+                        cam_img,
+                        caption="Model Attention Heatmap",
+                        width=350
+                    )
+
                 except Exception as e:
-                    st.error("Error during prediction: " + str(e))
+
+                    st.error(f"Prediction failed: {e}")
+
+
+
+
+st.markdown("---")
+
+st.markdown(
+    """
+    <div style="text-align:center; color:#888;">
+        Developed by <b>Anika0102</b><br>
+        Gastric Cancer Screening using Deep Learning and Grad-CAM<br><br>
+        <a href="https://github.com/anika0102/X-GastroAI" target="_blank">
+            View Source Code
+        </a>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
